@@ -393,7 +393,14 @@ let currentUser = null;
 window.loginGoogle = async () => {
   try {
     const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+    // Pede permissão para ler/escrever na agenda
+    provider.addScope('https://www.googleapis.com/auth/calendar.events');
+    const result = await signInWithPopup(auth, provider);
+    // Guarda o token do Google para usar na API do Calendar
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if(credential?.accessToken){
+      sessionStorage.setItem('gcal_token', credential.accessToken);
+    }
   } catch(e) { alert('Erro ao entrar: ' + e.message); }
 };
 
@@ -404,17 +411,24 @@ window.logoutUser = async () => {
   ]);
 };
 
-onAuthStateChanged(auth, user => {
+onAuthStateChanged(auth, async user => {
   document.getElementById('loadingScreen').style.display = 'none';
   if(user){
     currentUser = user;
     document.getElementById('loginScreen').style.display  = 'none';
     document.getElementById('appScreen').style.display    = 'block';
     renderUserAvatar(user);
+    // Tenta renovar token do Calendar silenciosamente
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.addScope('https://www.googleapis.com/auth/calendar.events');
+      const result = await auth.currentUser.getIdToken(true);
+    } catch(e){}
     loadData();
   } else {
     currentUser = null;
     bills = []; receitas = []; paid = {};
+    sessionStorage.removeItem('gcal_token');
     document.getElementById('appScreen').style.display   = 'none';
     document.getElementById('loginScreen').style.display = 'flex';
   }
@@ -703,9 +717,24 @@ window.saveBill = async () => {
   const btn=document.getElementById('btnSave');
   btn.disabled=true; btn.textContent='Salvando...';
   try {
-    if(editingId){ await setDoc(userDoc(colName,editingId),data); }
-    else          { await addDoc(userCol(colName),data); }
+    let docId = editingId;
+    if(editingId){
+      await setDoc(userDoc(colName,editingId),data);
+      // Remove eventos antigos e recria
+      await deleteCalendarEvents(editingId, colName);
+    } else {
+      const ref = await addDoc(userCol(colName),data);
+      docId = ref.id;
+    }
+    // Cria eventos no Google Calendar
+    btn.textContent='Criando lembretes...';
+    const ok = await ensureCalToken();
+    if(ok){
+      const eventIds = await createCalendarEvents({...data, id:docId}, editingKind);
+      await saveEventIds(docId, colName, eventIds);
+    }
     closeSheet('formOverlay');
+    showToast('📅','Lembretes criados!','Eventos adicionados na sua Agenda Google','orange');
   } catch(e){ alert('Erro ao salvar: '+e.message); }
   btn.disabled=false; btn.textContent='Salvar';
 };
@@ -755,7 +784,11 @@ window.deleteItem = (id, kind) => {
   const colName=isR?'receitas':'bills';
   if(b.tipo==='avulsa'){
     showConfirm('🗑 Excluir','Deseja excluir <strong>'+b.name+'</strong>?',[
-      {label:'Excluir',color:'red',action:async()=>{ await deleteDoc(userDoc(colName,id)); closeSheet('detailOverlay'); }},
+      {label:'Excluir',color:'red',action:async()=>{
+        await deleteCalendarEvents(id, colName);
+        await deleteDoc(userDoc(colName,id));
+        closeSheet('detailOverlay');
+      }},
       {label:'Cancelar',color:'cancel',action:()=>{}}
     ]);
   } else {
@@ -766,7 +799,11 @@ window.deleteItem = (id, kind) => {
         localStorage.setItem(`skips_${currentUser.uid}`,JSON.stringify(sk));
         closeSheet('detailOverlay'); render();
       }},
-      {label:'Todos os meses',color:'red',action:async()=>{ await deleteDoc(userDoc(colName,id)); closeSheet('detailOverlay'); }},
+      {label:'Todos os meses',color:'red',action:async()=>{
+        await deleteCalendarEvents(id, colName);
+        await deleteDoc(userDoc(colName,id));
+        closeSheet('detailOverlay');
+      }},
       {label:'Cancelar',color:'cancel',action:()=>{}}
     ]);
   }
@@ -867,6 +904,126 @@ function showDueToasts(){
     localStorage.setItem(`toasts_${currentUser?.uid}`,JSON.stringify(shown));
   });
 }
+
+// ── GOOGLE CALENDAR ───────────────────────────────────
+function getCalToken(){
+  return sessionStorage.getItem('gcal_token');
+}
+
+// Pede novo token ao usuário se necessário
+async function ensureCalToken(){
+  if(getCalToken()) return true;
+  try {
+    const provider = new GoogleAuthProvider();
+    provider.addScope('https://www.googleapis.com/auth/calendar.events');
+    const result = await signInWithPopup(auth, provider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if(credential?.accessToken){
+      sessionStorage.setItem('gcal_token', credential.accessToken);
+      return true;
+    }
+  } catch(e){ console.warn('Calendar token falhou:', e); }
+  return false;
+}
+
+// Monta a data no formato correto para o Calendar (YYYY-MM-DD)
+function toCalDate(dateObj){
+  return dateObj.toISOString().slice(0,10);
+}
+
+// Cria evento(s) no Google Calendar para uma conta
+async function createCalendarEvents(bill, kind='despesa'){
+  const token = getCalToken();
+  if(!token) return; // silencioso — agenda é opcional
+
+  const isR = kind==='receita';
+  const icon = catIcon(kind, bill.cat);
+  const tipoLabel = isR ? '💰 Receita' : '💸 Despesa';
+  const actionLabel = isR ? 'Recebimento previsto' : 'Vencimento';
+
+  // Calcula as datas dos eventos (mês atual em diante)
+  const dates = [];
+  if(bill.tipo==='avulsa'){
+    const d = new Date((bill.date||bill.recDate)+'T00:00:00');
+    dates.push(d);
+  } else {
+    // Recorrente: cria eventos para os próximos 12 meses (ou até o fim das parcelas)
+    const [sy,sm] = bill.startMonth.split('-').map(Number);
+    const startIdx = sy*12+(sm-1);
+    const totalMeses = (bill.parcelas>0) ? bill.parcelas : 12;
+    for(let i=0;i<totalMeses;i++){
+      const totalMonths = startIdx+i;
+      const y = Math.floor(totalMonths/12);
+      const m = totalMonths%12;
+      const d = Math.min(bill.day, new Date(y,m+1,0).getDate());
+      dates.push(new Date(y,m,d));
+    }
+  }
+
+  const eventIds = [];
+  for(const due of dates){
+    const dateStr = toCalDate(due);
+    const body = {
+      summary: `${icon.emoji} ${bill.name} — ${fmtMoney(bill.value)}`,
+      description: `${tipoLabel}\n${actionLabel}: ${fmtDate(due)}\nCofre — Controle Financeiro`,
+      start:  { date: dateStr },
+      end:    { date: dateStr },
+      reminders: {
+        useDefault: false,
+        overrides: [
+          { method: 'popup', minutes: 24*60 }, // 1 dia antes
+          { method: 'popup', minutes: 9*60  }, // no dia às 9h (9h*60min do início do dia)
+          { method: 'email', minutes: 24*60 },
+        ]
+      },
+      colorId: isR ? '10' : '11' // verde para receita, vermelho para despesa
+    };
+
+    try {
+      const resp = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events',{
+        method:'POST',
+        headers:{ 'Authorization':'Bearer '+token, 'Content-Type':'application/json' },
+        body: JSON.stringify(body)
+      });
+      if(resp.ok){
+        const ev = await resp.json();
+        eventIds.push(ev.id);
+      } else if(resp.status===401){
+        // Token expirado — limpa para pedir de novo na próxima
+        sessionStorage.removeItem('gcal_token');
+        break;
+      }
+    } catch(e){ console.warn('Erro ao criar evento:', e); }
+  }
+  return eventIds;
+}
+
+// Deleta eventos do Calendar pelo ID salvo no Firestore
+async function deleteCalendarEvents(billId, colName){
+  const token = getCalToken();
+  if(!token) return;
+  try {
+    const snap = await getDocs(userCol(`${colName}_calEvents`));
+    const docs = snap.docs.filter(d=>d.data().billId===billId);
+    for(const d of docs){
+      const evId = d.data().eventId;
+      await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${evId}`,{
+        method:'DELETE',
+        headers:{ 'Authorization':'Bearer '+token }
+      });
+      await deleteDoc(userDoc(`${colName}_calEvents`, d.id));
+    }
+  } catch(e){ console.warn('Erro ao deletar eventos:', e); }
+}
+
+// Salva os IDs dos eventos criados no Firestore
+async function saveEventIds(billId, colName, eventIds){
+  if(!eventIds?.length) return;
+  for(const evId of eventIds){
+    await addDoc(userCol(`${colName}_calEvents`),{ billId, eventId:evId, createdAt:Date.now() });
+  }
+}
+
 
 </script>
 </body>
