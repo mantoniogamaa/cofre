@@ -405,10 +405,13 @@ window.loginGoogle = async () => {
 };
 
 window.logoutUser = async () => {
-  showConfirm('Sair da conta','Deseja mesmo sair?',[
-    { label:'Sair', color:'red', action: async ()=>{ await signOut(auth); closeSheet('userMenuOverlay'); }},
-    { label:'Cancelar', color:'cancel', action:()=>{} }
-  ]);
+  closeSheet('userMenuOverlay');
+  setTimeout(()=>{
+    showConfirm('Sair da conta','Deseja mesmo sair?',[
+      { label:'Sair', color:'red', action: async ()=>{ await signOut(auth); }},
+      { label:'Cancelar', color:'cancel', action:()=>{} }
+    ]);
+  }, 300);
 };
 
 onAuthStateChanged(auth, async user => {
@@ -934,20 +937,19 @@ function toCalDate(dateObj){
 // Cria evento(s) no Google Calendar para uma conta
 async function createCalendarEvents(bill, kind='despesa'){
   const token = getCalToken();
-  if(!token) return; // silencioso — agenda é opcional
+  if(!token) return;
 
   const isR = kind==='receita';
   const icon = catIcon(kind, bill.cat);
   const tipoLabel = isR ? '💰 Receita' : '💸 Despesa';
   const actionLabel = isR ? 'Recebimento previsto' : 'Vencimento';
 
-  // Calcula as datas dos eventos (mês atual em diante)
+  // Calcula as datas dos eventos
   const dates = [];
   if(bill.tipo==='avulsa'){
     const d = new Date((bill.date||bill.recDate)+'T00:00:00');
     dates.push(d);
   } else {
-    // Recorrente: cria eventos para os próximos 12 meses (ou até o fim das parcelas)
     const [sy,sm] = bill.startMonth.split('-').map(Number);
     const startIdx = sy*12+(sm-1);
     const totalMeses = (bill.parcelas>0) ? bill.parcelas : 12;
@@ -961,39 +963,69 @@ async function createCalendarEvents(bill, kind='despesa'){
   }
 
   const eventIds = [];
+
   for(const due of dates){
-    const dateStr = toCalDate(due);
-    const body = {
-      summary: `${icon.emoji} ${bill.name} — ${fmtMoney(bill.value)}`,
-      description: `${tipoLabel}\n${actionLabel}: ${fmtDate(due)}\nCofre — Controle Financeiro`,
-      start:  { date: dateStr },
-      end:    { date: dateStr },
+    const yyyy = due.getFullYear();
+    const mm   = String(due.getMonth()+1).padStart(2,'0');
+    const dd   = String(due.getDate()).padStart(2,'0');
+
+    // ── Evento 1: NO DIA DO VENCIMENTO às 9h (com hora = notificação garantida) ──
+    const startDateTime = `${yyyy}-${mm}-${dd}T09:00:00`;
+    const endDateTime   = `${yyyy}-${mm}-${dd}T09:30:00`;
+
+    const bodyDia = {
+      summary: `${icon.emoji} ${actionLabel}: ${bill.name}`,
+      description: `${tipoLabel} — ${fmtMoney(bill.value)}\n${actionLabel}: ${fmtDate(due)}\nCofre — Controle Financeiro`,
+      start: { dateTime: startDateTime, timeZone: 'America/Sao_Paulo' },
+      end:   { dateTime: endDateTime,   timeZone: 'America/Sao_Paulo' },
       reminders: {
         useDefault: false,
         overrides: [
-          { method: 'popup', minutes: 24*60 }, // 1 dia antes
-          { method: 'popup', minutes: 9*60  }, // no dia às 9h (9h*60min do início do dia)
-          { method: 'email', minutes: 24*60 },
+          { method: 'popup', minutes: 0 },   // exato às 9h no dia
+          { method: 'email', minutes: 0 },
         ]
       },
-      colorId: isR ? '10' : '11' // verde para receita, vermelho para despesa
+      colorId: isR ? '10' : '11'
     };
 
-    try {
-      const resp = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events',{
-        method:'POST',
-        headers:{ 'Authorization':'Bearer '+token, 'Content-Type':'application/json' },
-        body: JSON.stringify(body)
-      });
-      if(resp.ok){
-        const ev = await resp.json();
-        eventIds.push(ev.id);
-      } else if(resp.status===401){
-        // Token expirado — limpa para pedir de novo na próxima
-        sessionStorage.removeItem('gcal_token');
-        break;
-      }
-    } catch(e){ console.warn('Erro ao criar evento:', e); }
+    // ── Evento 2: 1 DIA ANTES às 9h ──
+    const dayBefore  = new Date(due);
+    dayBefore.setDate(dayBefore.getDate()-1);
+    const yb  = dayBefore.getFullYear();
+    const mb2 = String(dayBefore.getMonth()+1).padStart(2,'0');
+    const db  = String(dayBefore.getDate()).padStart(2,'0');
+
+    const bodyAntes = {
+      summary: `⏰ Amanhã vence: ${bill.name}`,
+      description: `${tipoLabel} — ${fmtMoney(bill.value)}\n${actionLabel}: ${fmtDate(due)}\nCofre — Controle Financeiro`,
+      start: { dateTime: `${yb}-${mb2}-${db}T09:00:00`, timeZone: 'America/Sao_Paulo' },
+      end:   { dateTime: `${yb}-${mb2}-${db}T09:30:00`, timeZone: 'America/Sao_Paulo' },
+      reminders: {
+        useDefault: false,
+        overrides: [
+          { method: 'popup', minutes: 0 },
+          { method: 'email', minutes: 0 },
+        ]
+      },
+      colorId: isR ? '10' : '6' // laranja para aviso antecipado
+    };
+
+    for(const body of [bodyDia, bodyAntes]){
+      try {
+        const resp = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events',{
+          method:'POST',
+          headers:{ 'Authorization':'Bearer '+token, 'Content-Type':'application/json' },
+          body: JSON.stringify(body)
+        });
+        if(resp.ok){
+          const ev = await resp.json();
+          eventIds.push(ev.id);
+        } else if(resp.status===401){
+          sessionStorage.removeItem('gcal_token');
+          break;
+        }
+      } catch(e){ console.warn('Erro ao criar evento:', e); }
+    }
   }
   return eventIds;
 }
