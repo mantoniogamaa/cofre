@@ -18,22 +18,73 @@ body{background:var(--bg);color:var(--text);font-family:'Nunito',-apple-system,s
 
 /* ── LOGIN SCREEN ── */
 #loginScreen{
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  min-height:100vh;padding:40px 32px;background:var(--bg);
+  display:flex;flex-direction:column;
+  min-height:100vh;padding:0;background:var(--bg);overflow:hidden;
+  position:relative;
 }
-.login-logo{font-size:52px;margin-bottom:16px;}
-.login-title{font-size:28px;font-weight:800;color:var(--text);letter-spacing:-0.5px;margin-bottom:6px;}
-.login-sub{font-size:15px;color:var(--secondary);margin-bottom:48px;text-align:center;line-height:1.5;}
+.login-top{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:60px 32px 32px;
+  background:linear-gradient(160deg,#007aff 0%,#5856d6 100%);
+  position:relative;overflow:hidden;
+}
+.login-top::before{
+  content:'';position:absolute;width:320px;height:320px;border-radius:50%;
+  background:rgba(255,255,255,0.06);top:-80px;right:-80px;
+}
+.login-top::after{
+  content:'';position:absolute;width:200px;height:200px;border-radius:50%;
+  background:rgba(255,255,255,0.06);bottom:-40px;left:-40px;
+}
+.login-icon-wrap{
+  width:80px;height:80px;border-radius:24px;
+  background:rgba(255,255,255,0.2);backdrop-filter:blur(10px);
+  display:flex;align-items:center;justify-content:center;
+  font-size:38px;margin-bottom:20px;
+  box-shadow:0 8px 32px rgba(0,0,0,0.15);
+  border:1.5px solid rgba(255,255,255,0.3);
+  position:relative;z-index:1;
+}
+.login-title{
+  font-size:34px;font-weight:800;color:#fff;
+  letter-spacing:-1px;margin-bottom:8px;position:relative;z-index:1;
+}
+.login-sub{
+  font-size:15px;color:rgba(255,255,255,0.75);
+  text-align:center;line-height:1.6;position:relative;z-index:1;
+  max-width:260px;
+}
+.login-bottom{
+  background:var(--surface);padding:28px 24px 40px;
+  border-radius:28px 28px 0 0;
+  margin-top:-24px;
+  box-shadow:0 -4px 24px rgba(0,0,0,0.08);
+}
+.login-features{display:flex;flex-direction:column;gap:14px;margin-bottom:28px;}
+.login-feature{display:flex;align-items:center;gap:14px;}
+.login-feature-icon{
+  width:40px;height:40px;border-radius:12px;
+  display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;
+}
+.login-feature-icon.blue{background:rgba(0,122,255,0.1);}
+.login-feature-icon.green{background:rgba(52,199,89,0.1);}
+.login-feature-icon.purple{background:rgba(88,86,214,0.1);}
+.login-feature-text strong{display:block;font-size:14px;font-weight:700;color:var(--text);}
+.login-feature-text span{font-size:12px;color:var(--tertiary);}
+.login-divider{display:flex;align-items:center;gap:12px;margin-bottom:20px;}
+.login-divider::before,.login-divider::after{content:'';flex:1;height:1px;background:var(--border);}
+.login-divider span{font-size:12px;color:var(--tertiary);font-weight:600;}
 .btn-google{
   display:flex;align-items:center;gap:12px;
   background:var(--surface);border:1.5px solid var(--border);border-radius:14px;
-  padding:14px 24px;cursor:pointer;font-family:'Nunito',sans-serif;
+  padding:15px 24px;cursor:pointer;font-family:'Nunito',sans-serif;
   font-size:15px;font-weight:700;color:var(--text);
-  box-shadow:0 2px 8px rgba(0,0,0,0.08);transition:all 0.18s;width:100%;justify-content:center;
+  box-shadow:0 2px 12px rgba(0,0,0,0.07);transition:all 0.18s;
+  width:100%;justify-content:center;
 }
-.btn-google:active{transform:scale(0.97);}
+.btn-google:active{transform:scale(0.97);background:#f8f8f8;}
 .btn-google img{width:22px;height:22px;}
-.login-footer{font-size:12px;color:var(--tertiary);margin-top:32px;text-align:center;}
+.login-footer{font-size:11px;color:var(--tertiary);margin-top:16px;text-align:center;line-height:1.5;}
 
 /* ── LOADING ── */
 #loadingScreen{display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;gap:12px;}
@@ -221,14 +272,47 @@ select.form-input{cursor:pointer;}
 
 <!-- LOGIN -->
 <div id="loginScreen" style="display:none">
-  <div class="login-logo">🏦</div>
-  <div class="login-title">Cofre</div>
-  <div class="login-sub">Controle suas finanças pessoais de forma simples e inteligente.</div>
-  <button class="btn-google" onclick="loginGoogle()">
-    <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google"/>
-    Entrar com Google
-  </button>
-  <div class="login-footer">Seus dados são salvos com segurança na nuvem.</div>
+  <!-- Topo com gradiente -->
+  <div class="login-top">
+    <div class="login-icon-wrap">💰</div>
+    <div class="login-title">Cofre</div>
+    <div class="login-sub">Controle suas finanças pessoais de forma simples e inteligente.</div>
+  </div>
+
+  <!-- Card inferior -->
+  <div class="login-bottom">
+    <div class="login-features">
+      <div class="login-feature">
+        <div class="login-feature-icon blue">📊</div>
+        <div class="login-feature-text">
+          <strong>Saldo em tempo real</strong>
+          <span>Receitas, despesas e saldo do mês</span>
+        </div>
+      </div>
+      <div class="login-feature">
+        <div class="login-feature-icon green">📅</div>
+        <div class="login-feature-text">
+          <strong>Lembretes automáticos</strong>
+          <span>Integrado com o Google Agenda</span>
+        </div>
+      </div>
+      <div class="login-feature">
+        <div class="login-feature-icon purple">☁️</div>
+        <div class="login-feature-text">
+          <strong>Salvo na nuvem</strong>
+          <span>Acesse de qualquer dispositivo</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="login-divider"><span>Entrar com</span></div>
+
+    <button class="btn-google" onclick="loginGoogle()">
+      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google"/>
+      Continuar com Google
+    </button>
+    <div class="login-footer">Ao entrar, você concorda com os termos de uso.<br>Seus dados são protegidos e criptografados.</div>
+  </div>
 </div>
 
 <!-- APP -->
