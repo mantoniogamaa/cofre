@@ -722,15 +722,16 @@ window.saveBill = async () => {
   try {
     let docId = editingId;
     if(editingId){
-      await setDoc(userDoc(colName,editingId),data);
-      // Remove eventos antigos e recria
-      await deleteCalendarEvents(editingId, colName);
+      // Salva no Firestore e deleta eventos antigos em paralelo
+      await Promise.all([
+        setDoc(userDoc(colName,editingId),data),
+        deleteCalendarEvents(editingId, colName)
+      ]);
     } else {
       const ref = await addDoc(userCol(colName),data);
       docId = ref.id;
     }
-    // Cria eventos no Google Calendar
-    btn.textContent='Criando lembretes...';
+    // Cria eventos no Calendar e salva IDs — tudo em paralelo
     const ok = await ensureCalToken();
     if(ok){
       const eventIds = await createCalendarEvents({...data, id:docId}, editingKind);
@@ -934,126 +935,106 @@ function toCalDate(dateObj){
   return dateObj.toISOString().slice(0,10);
 }
 
-// Cria evento(s) no Google Calendar para uma conta
+// Cria evento(s) no Google Calendar via Batch (muito mais rápido)
 async function createCalendarEvents(bill, kind='despesa'){
   const token = getCalToken();
   if(!token) return;
 
   const isR = kind==='receita';
   const icon = catIcon(kind, bill.cat);
-  const tipoLabel = isR ? '💰 Receita' : '💸 Despesa';
+  const tipoLabel   = isR ? '💰 Receita' : '💸 Despesa';
   const actionLabel = isR ? 'Recebimento previsto' : 'Vencimento';
 
-  // Calcula as datas dos eventos
+  // Calcula as datas
   const dates = [];
   if(bill.tipo==='avulsa'){
-    const d = new Date((bill.date||bill.recDate)+'T00:00:00');
-    dates.push(d);
+    dates.push(new Date((bill.date||bill.recDate)+'T00:00:00'));
   } else {
     const [sy,sm] = bill.startMonth.split('-').map(Number);
     const startIdx = sy*12+(sm-1);
     const totalMeses = (bill.parcelas>0) ? bill.parcelas : 12;
     for(let i=0;i<totalMeses;i++){
-      const totalMonths = startIdx+i;
-      const y = Math.floor(totalMonths/12);
-      const m = totalMonths%12;
-      const d = Math.min(bill.day, new Date(y,m+1,0).getDate());
-      dates.push(new Date(y,m,d));
+      const tot = startIdx+i;
+      const y=Math.floor(tot/12), m=tot%12;
+      dates.push(new Date(y, m, Math.min(bill.day, new Date(y,m+1,0).getDate())));
     }
   }
 
-  const eventIds = [];
-
+  // Monta todos os corpos de evento
+  const bodies = [];
   for(const due of dates){
     const yyyy = due.getFullYear();
     const mm   = String(due.getMonth()+1).padStart(2,'0');
     const dd   = String(due.getDate()).padStart(2,'0');
 
-    // ── Evento 1: NO DIA DO VENCIMENTO às 9h (com hora = notificação garantida) ──
-    const startDateTime = `${yyyy}-${mm}-${dd}T09:00:00`;
-    const endDateTime   = `${yyyy}-${mm}-${dd}T09:30:00`;
-
-    const bodyDia = {
+    // Dia do vencimento às 9h
+    bodies.push({
       summary: `${icon.emoji} ${actionLabel}: ${bill.name}`,
-      description: `${tipoLabel} — ${fmtMoney(bill.value)}\n${actionLabel}: ${fmtDate(due)}\nCofre — Controle Financeiro`,
-      start: { dateTime: startDateTime, timeZone: 'America/Sao_Paulo' },
-      end:   { dateTime: endDateTime,   timeZone: 'America/Sao_Paulo' },
-      reminders: {
-        useDefault: false,
-        overrides: [
-          { method: 'popup', minutes: 0 },   // exato às 9h no dia
-          { method: 'email', minutes: 0 },
-        ]
-      },
+      description: `${tipoLabel} — ${fmtMoney(bill.value)}\n${actionLabel}: ${fmtDate(due)}\nCofre`,
+      start: { dateTime:`${yyyy}-${mm}-${dd}T09:00:00`, timeZone:'America/Sao_Paulo' },
+      end:   { dateTime:`${yyyy}-${mm}-${dd}T09:30:00`, timeZone:'America/Sao_Paulo' },
+      reminders: { useDefault:false, overrides:[{method:'popup',minutes:0},{method:'email',minutes:0}] },
       colorId: isR ? '10' : '11'
-    };
+    });
 
-    // ── Evento 2: 1 DIA ANTES às 9h ──
-    const dayBefore  = new Date(due);
-    dayBefore.setDate(dayBefore.getDate()-1);
-    const yb  = dayBefore.getFullYear();
-    const mb2 = String(dayBefore.getMonth()+1).padStart(2,'0');
-    const db  = String(dayBefore.getDate()).padStart(2,'0');
-
-    const bodyAntes = {
+    // 1 dia antes às 9h
+    const before = new Date(due); before.setDate(before.getDate()-1);
+    const yb=before.getFullYear(), mb2=String(before.getMonth()+1).padStart(2,'0'), db=String(before.getDate()).padStart(2,'0');
+    bodies.push({
       summary: `⏰ Amanhã vence: ${bill.name}`,
-      description: `${tipoLabel} — ${fmtMoney(bill.value)}\n${actionLabel}: ${fmtDate(due)}\nCofre — Controle Financeiro`,
-      start: { dateTime: `${yb}-${mb2}-${db}T09:00:00`, timeZone: 'America/Sao_Paulo' },
-      end:   { dateTime: `${yb}-${mb2}-${db}T09:30:00`, timeZone: 'America/Sao_Paulo' },
-      reminders: {
-        useDefault: false,
-        overrides: [
-          { method: 'popup', minutes: 0 },
-          { method: 'email', minutes: 0 },
-        ]
-      },
-      colorId: isR ? '10' : '6' // laranja para aviso antecipado
-    };
+      description: `${tipoLabel} — ${fmtMoney(bill.value)}\n${actionLabel}: ${fmtDate(due)}\nCofre`,
+      start: { dateTime:`${yb}-${mb2}-${db}T09:00:00`, timeZone:'America/Sao_Paulo' },
+      end:   { dateTime:`${yb}-${mb2}-${db}T09:30:00`, timeZone:'America/Sao_Paulo' },
+      reminders: { useDefault:false, overrides:[{method:'popup',minutes:0},{method:'email',minutes:0}] },
+      colorId: '6'
+    });
+  }
 
-    for(const body of [bodyDia, bodyAntes]){
-      try {
-        const resp = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events',{
+  // Envia tudo em paralelo com Promise.all (sem esperar um por um)
+  const eventIds = [];
+  try {
+    const results = await Promise.all(
+      bodies.map(body =>
+        fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events',{
           method:'POST',
           headers:{ 'Authorization':'Bearer '+token, 'Content-Type':'application/json' },
           body: JSON.stringify(body)
-        });
-        if(resp.ok){
-          const ev = await resp.json();
-          eventIds.push(ev.id);
-        } else if(resp.status===401){
-          sessionStorage.removeItem('gcal_token');
-          break;
-        }
-      } catch(e){ console.warn('Erro ao criar evento:', e); }
-    }
-  }
+        }).then(r => {
+          if(r.status===401){ sessionStorage.removeItem('gcal_token'); return null; }
+          return r.ok ? r.json() : null;
+        }).catch(()=>null)
+      )
+    );
+    results.forEach(ev => { if(ev?.id) eventIds.push(ev.id); });
+  } catch(e){ console.warn('Erro batch calendar:', e); }
+
   return eventIds;
 }
 
-// Deleta eventos do Calendar pelo ID salvo no Firestore
+// Deleta eventos do Calendar em paralelo
 async function deleteCalendarEvents(billId, colName){
   const token = getCalToken();
   if(!token) return;
   try {
     const snap = await getDocs(userCol(`${colName}_calEvents`));
     const docs = snap.docs.filter(d=>d.data().billId===billId);
-    for(const d of docs){
-      const evId = d.data().eventId;
-      await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${evId}`,{
-        method:'DELETE',
-        headers:{ 'Authorization':'Bearer '+token }
-      });
-      await deleteDoc(userDoc(`${colName}_calEvents`, d.id));
-    }
+    await Promise.all(docs.map(d => Promise.all([
+      fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${d.data().eventId}`,{
+        method:'DELETE', headers:{'Authorization':'Bearer '+token}
+      }).catch(()=>{}),
+      deleteDoc(userDoc(`${colName}_calEvents`, d.id))
+    ])));
   } catch(e){ console.warn('Erro ao deletar eventos:', e); }
 }
 
-// Salva os IDs dos eventos criados no Firestore
+// Salva os IDs dos eventos criados no Firestore em paralelo
 async function saveEventIds(billId, colName, eventIds){
   if(!eventIds?.length) return;
-  for(const evId of eventIds){
-    await addDoc(userCol(`${colName}_calEvents`),{ billId, eventId:evId, createdAt:Date.now() });
-  }
+  await Promise.all(
+    eventIds.map(evId =>
+      addDoc(userCol(`${colName}_calEvents`),{ billId, eventId:evId, createdAt:Date.now() })
+    )
+  );
 }
 
 
