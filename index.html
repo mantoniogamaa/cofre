@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Cofre</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -544,7 +547,7 @@ select.form-input{cursor:pointer;}
 <!-- FIREBASE -->
 <script type="module">
 import { initializeApp }          from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, setPersistence, browserLocalPersistence, signOut, onAuthStateChanged }
                                   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, collection, doc, getDocs, addDoc, setDoc, deleteDoc, onSnapshot }
                                   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
@@ -560,6 +563,9 @@ const app  = initializeApp({
 const auth = getAuth(app);
 const db   = getFirestore(app);
 
+// ── PERSISTÊNCIA LOCAL — mantém login entre sessões ──
+await setPersistence(auth, browserLocalPersistence);
+
 // ── AUTH ──
 let currentUser=null;
 
@@ -567,9 +573,16 @@ window.loginGoogle = async () => {
   try {
     const p = new GoogleAuthProvider();
     p.addScope('https://www.googleapis.com/auth/calendar.events');
-    const r = await signInWithPopup(auth, p);
-    const c = GoogleAuthProvider.credentialFromResult(r);
-    if(c?.accessToken) sessionStorage.setItem('gcal_token', c.accessToken);
+    // Tenta popup; se falhar (ex: bloqueador), usa redirect
+    try {
+      const r = await signInWithPopup(auth, p);
+      const c = GoogleAuthProvider.credentialFromResult(r);
+      if(c?.accessToken) localStorage.setItem('gcal_token', c.accessToken);
+    } catch(popupErr) {
+      if(popupErr.code === 'auth/popup-blocked' || popupErr.code === 'auth/popup-closed-by-user'){
+        await signInWithRedirect(auth, p);
+      } else { throw popupErr; }
+    }
   } catch(e){ alert('Erro ao entrar: '+e.message); }
 };
 
@@ -577,11 +590,22 @@ window.logoutUser = async () => {
   closeSheet('userMenuOverlay');
   setTimeout(()=>{
     showConfirm('Sair da conta','Deseja mesmo sair?',[
-      {label:'Sair',color:'red',action:async()=>{ await signOut(auth); }},
+      {label:'Sair',color:'red',action:async()=>{
+        localStorage.removeItem('gcal_token');
+        await signOut(auth);
+      }},
       {label:'Cancelar',color:'cancel',action:()=>{}}
     ]);
   },300);
 };
+
+// Captura resultado de redirect (caso o popup tenha sido bloqueado)
+getRedirectResult(auth).then(result => {
+  if(result){
+    const c = GoogleAuthProvider.credentialFromResult(result);
+    if(c?.accessToken) localStorage.setItem('gcal_token', c.accessToken);
+  }
+}).catch(()=>{});
 
 onAuthStateChanged(auth, user => {
   document.getElementById('loadingScreen').style.display='none';
@@ -593,7 +617,7 @@ onAuthStateChanged(auth, user => {
     loadData();
   } else {
     currentUser=null; bills=[]; receitas=[]; paid={};
-    sessionStorage.removeItem('gcal_token');
+    localStorage.removeItem('gcal_token');
     document.getElementById('appScreen').style.display='none';
     document.getElementById('loginScreen').style.display='flex';
   }
@@ -1026,14 +1050,17 @@ function showDueToasts(){
 }
 
 // ── GOOGLE CALENDAR ──
-function getToken(){ return sessionStorage.getItem('gcal_token'); }
+function getToken(){ return localStorage.getItem('gcal_token'); }
 async function ensureToken(){
   if(getToken()) return true;
   try {
-    const p=new GoogleAuthProvider(); p.addScope('https://www.googleapis.com/auth/calendar.events');
-    const r=await signInWithPopup(auth,p); const c=GoogleAuthProvider.credentialFromResult(r);
-    if(c?.accessToken){ sessionStorage.setItem('gcal_token',c.accessToken); return true; }
-  } catch(e){}
+    const p=new GoogleAuthProvider();
+    p.addScope('https://www.googleapis.com/auth/calendar.events');
+    p.setCustomParameters({ prompt:'none' }); // sem tela de login extra
+    const r=await signInWithPopup(auth,p);
+    const c=GoogleAuthProvider.credentialFromResult(r);
+    if(c?.accessToken){ localStorage.setItem('gcal_token',c.accessToken); return true; }
+  } catch(e){ console.warn('token calendar:',e.code); }
   return false;
 }
 async function createCalEvents(bill,kind){
@@ -1057,7 +1084,7 @@ async function createCalEvents(bill,kind){
     bodies.push({ summary:`Amanhã vence: ${bill.name}`, description:`${cat.label} — ${fmtMoney(bill.value)}\n${al}: ${fmtDate(due)}\nCofre`, start:{dateTime:`${yb}-${mb}-${db}T09:00:00`,timeZone:'America/Sao_Paulo'}, end:{dateTime:`${yb}-${mb}-${db}T09:30:00`,timeZone:'America/Sao_Paulo'}, reminders:{useDefault:false,overrides:[{method:'popup',minutes:0},{method:'email',minutes:0}]}, colorId:'6' });
   }
   const ids=[];
-  const results=await Promise.all(bodies.map(body=>fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events',{method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>{ if(r.status===401) sessionStorage.removeItem('gcal_token'); return r.ok?r.json():null; }).catch(()=>null)));
+  const results=await Promise.all(bodies.map(body=>fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events',{method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>{ if(r.status===401) localStorage.removeItem('gcal_token'); return r.ok?r.json():null; }).catch(()=>null)));
   results.forEach(ev=>{ if(ev?.id) ids.push(ev.id); });
   return ids;
 }
