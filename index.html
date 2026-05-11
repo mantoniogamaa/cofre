@@ -201,7 +201,8 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,sa
 .ci-bonus      {background:#fff8e1;}.ci-aluguel_rec{background:#e0f2f1;}.ci-outros_rec {background:#f5f5f5;}
 
 .bill-info{flex:1;min-width:0;}
-.bill-name{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);}
+.bill-name{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);display:flex;align-items:center;gap:5px;}
+.override-dot{width:6px;height:6px;min-width:6px;border-radius:50%;background:var(--orange);display:inline-block;}
 .bill-meta{display:flex;align-items:center;gap:6px;margin-top:3px;}
 .bill-date{font-size:11px;color:var(--tertiary);font-weight:500;}
 .bill-chip{font-size:10px;font-weight:600;padding:1px 6px;border-radius:20px;}
@@ -483,12 +484,12 @@ select.form-input{cursor:pointer;}
   <div class="sheet">
     <div class="sheet-handle"></div>
     <div class="sheet-title" id="formTitle">Nova despesa</div>
-    <div class="tipo-row">
+    <div class="tipo-row" id="tipoRow">
       <button class="tipo-btn active" id="tRec" onclick="setTipo('recorrente')">Mensal</button>
       <button class="tipo-btn" id="tAvu" onclick="setTipo('avulsa')">Avulsa</button>
     </div>
     <div class="form-group">
-      <div class="form-row"><div class="form-lbl">Nome</div><input class="form-input" id="fName" placeholder="Ex: Aluguel"/></div>
+      <div class="form-row" id="nameRow"><div class="form-lbl">Nome</div><input class="form-input" id="fName" placeholder="Ex: Aluguel"/></div>
       <div class="form-row"><div class="form-lbl">Valor (R$)</div><input class="form-input" id="fValue" type="number" placeholder="0,00" step="0.01"/></div>
       <div class="form-row" id="dayRow"><div class="form-lbl">Dia venc.</div><input class="form-input" id="fDay" type="number" min="1" max="31" placeholder="Ex: 10"/></div>
       <div class="form-row" id="startMonthRow"><div class="form-lbl">A partir de</div><input class="form-input" id="fStartMonth" type="month"/></div>
@@ -504,7 +505,7 @@ select.form-input{cursor:pointer;}
         </select>
       </div>
       <div class="form-row" id="dateRow" style="display:none"><div class="form-lbl">Data</div><input class="form-input" id="fDate" type="date"/></div>
-      <div class="form-row"><div class="form-lbl">Categoria</div><select class="form-input" id="fCat"></select></div>
+      <div class="form-row" id="catRow"><div class="form-lbl">Categoria</div><select class="form-input" id="fCat"></select></div>
     </div>
     <button class="btn-save" id="btnSave" onclick="saveBill()">Salvar</button>
   </div>
@@ -651,6 +652,16 @@ function loadData(){
   unsubR=onSnapshot(uCol('receitas'),s=>{ receitas=s.docs.map(d=>({...d.data(),id:d.id})); render(); });
   if(unsubP) unsubP();
   unsubP=onSnapshot(uCol('paid'),s=>{ paid={}; s.docs.forEach(d=>paid[d.id]=true); render(); });
+  // Carrega overrides de valor por mês
+  onSnapshot(uCol('bills_overrides'),s=>{
+    overrides={};
+    s.docs.forEach(d=>{ const o=d.data(); overrides[`${o.year}-${o.month}-${o.billId}`]=o.value; });
+    render();
+  });
+  onSnapshot(uCol('receitas_overrides'),s=>{
+    s.docs.forEach(d=>{ const o=d.data(); overrides[`${o.year}-${o.month}-${o.billId}`]=o.value; });
+    render();
+  });
 }
 
 // ── CATEGORIA ──
@@ -679,7 +690,13 @@ function catData(kind,cat){ return (kind==='receita'?CAT_R:CAT_D)[cat]||(kind===
 // ── STATE ──
 let currentFilter='todas',currentFilterRec='todas',currentTab='despesas';
 let currentMonth=new Date().getMonth(),currentYear=new Date().getFullYear();
-let editingId=null,editingKind='despesa',selTipo='recorrente';
+let editingId=null,editingKind='despesa',selTipo='recorrente',editingMonthOnly=false;
+let overrides={}; // { "year-month-id": value }
+
+function getVal(b){ // valor do mês atual (com override se existir)
+  const ok=`${currentYear}-${currentMonth}-${b.id}`;
+  return overrides[ok]!==undefined ? overrides[ok] : b.value;
+}
 
 // ── HELPERS ──
 function getDue(b,y,m){
@@ -765,6 +782,8 @@ function renderDespesas(mb){
   }
   const sorted=[...list].sort((a,b)=>getDue(a,currentYear,currentMonth)-getDue(b,currentYear,currentMonth));
   el.innerHTML=`<div class="bill-list">`+sorted.map(bill=>{
+    const val=getVal(bill);
+    const hasOv=overrides[`${currentYear}-${currentMonth}-${bill.id}`]!==undefined;
     const sc=getSC(bill),due=getDue(bill,currentYear,currentMonth),days=daysUntil(due),p=isPaid(bill);
     let st='',scl=sc;
     if(p){st='Pago';scl='muted';}
@@ -783,11 +802,11 @@ function renderDespesas(mb){
       <div class="status-bar ${sc}"></div>
       <div class="cat-icon ${cat.css}">${billSVG('despesa',bill.cat)}</div>
       <div class="bill-info">
-        <div class="bill-name">${bill.name}</div>
+        <div class="bill-name">${bill.name}${hasOv?'<span class="override-dot" title="Valor editado neste mês"></span>':''}</div>
         <div class="bill-meta"><span class="bill-date">${fmtDate(due)}</span><span class="bill-chip ${bill.tipo==='recorrente'?'mensal':'avulsa'}">${chip}</span></div>
       </div>
       <div class="bill-right">
-        <div class="bill-amount ${ac}">${fmtMoney(bill.value)}</div>
+        <div class="bill-amount ${ac}">${fmtMoney(val)}</div>
         <div class="bill-status ${scl}">${st}</div>
       </div>
     </div>`;
@@ -831,9 +850,39 @@ function renderReceitas(mr){
 }
 
 // ── FORM ──
-window.openForm=(kind='despesa',id=null)=>{
+window.openForm=(kind='despesa',id=null,monthOnly=false)=>{
   editingId=id; editingKind=kind; selTipo='recorrente';
+  editingMonthOnly=monthOnly;
   const isR=kind==='receita';
+
+  if(monthOnly && id){
+    // Modo: editar apenas o valor deste mês
+    const src=isR?receitas:bills, b=src.find(x=>x.id===id);
+    const overrides=JSON.parse(localStorage.getItem(`overrides_${currentUser.uid}`)||'{}');
+    const ok=`${currentYear}-${currentMonth}-${id}`;
+    const valAtual=overrides[ok]!==undefined ? overrides[ok] : b.value;
+    document.getElementById('formTitle').textContent='Valor de '+monthStr(currentMonth,currentYear);
+    document.getElementById('btnSave').className='btn-save'+(isR?' green':'');
+    document.getElementById('btnSave').textContent='Salvar valor do mês';
+    // Esconde tudo, mostra só valor
+    document.getElementById('tipoRow').style.display='none';
+    document.getElementById('nameRow').style.display='none';
+    document.getElementById('dayRow').style.display='none';
+    document.getElementById('startMonthRow').style.display='none';
+    document.getElementById('parcelasRow').style.display='none';
+    document.getElementById('dateRow').style.display='none';
+    document.getElementById('catRow').style.display='none';
+    document.getElementById('fValue').value=valAtual||'';
+    document.getElementById('formOverlay').classList.add('show');
+    return;
+  }
+
+  // Modo normal — restaura tudo
+  document.getElementById('tipoRow').style.display='';
+  document.getElementById('nameRow').style.display='';
+  document.getElementById('catRow').style.display='';
+  document.getElementById('btnSave').textContent='Salvar';
+
   document.getElementById('formTitle').textContent=id?(isR?'Editar receita':'Editar despesa'):(isR?'Nova receita':'Nova despesa');
   document.getElementById('btnSave').className='btn-save'+(isR?' green':'');
   const cs=document.getElementById('fCat');
@@ -853,7 +902,8 @@ window.openForm=(kind='despesa',id=null)=>{
     } else { document.getElementById('fDate').value=b.date||b.recDate||''; }
     cs.value=b.cat;
   } else {
-    ['fName','fValue','fDay','fDate'].forEach(i=>document.getElementById(i).value='');
+    ['fName','fDay','fDate'].forEach(i=>document.getElementById(i).value='');
+    document.getElementById('fValue').value='0';
     document.getElementById('fStartMonth').value=mm;
     document.getElementById('fParcelas').value='0';
     cs.selectedIndex=0;
@@ -873,30 +923,45 @@ window.setTipo=t=>{
 };
 
 window.saveBill=async()=>{
+  const value=parseFloat(document.getElementById('fValue').value)||0;
+  const isR=editingKind==='receita';
+  const col=isR?'receitas':'bills';
+  const btn=document.getElementById('btnSave');
+  btn.disabled=true; btn.textContent='Salvando...';
+
+  // ── Modo edição de valor do mês apenas ──
+  if(editingMonthOnly && editingId){
+    const ok=`${currentYear}-${currentMonth}-${editingId}`;
+    const overrides=JSON.parse(localStorage.getItem(`overrides_${currentUser.uid}`)||'{}');
+    overrides[ok]=value;
+    localStorage.setItem(`overrides_${currentUser.uid}`,JSON.stringify(overrides));
+    // Salva também no Firestore para sincronizar entre dispositivos
+    await setDoc(uDoc(`${col}_overrides`,ok),{billId:editingId,value,month:currentMonth,year:currentYear,uid:currentUser.uid});
+    btn.disabled=false; btn.textContent='Salvar';
+    closeSheet('formOverlay');
+    render();
+    return;
+  }
+
+  // ── Modo normal ──
   const name=document.getElementById('fName').value.trim();
-  const value=parseFloat(document.getElementById('fValue').value);
-  if(!name) return alert('Informe o nome.');
-  if(!value||value<=0) return alert('Informe um valor válido.');
+  if(!name) { btn.disabled=false; btn.textContent='Salvar'; return alert('Informe o nome.'); }
   let day,date,startMonth,parcelas;
   if(selTipo==='recorrente'){
     day=parseInt(document.getElementById('fDay').value);
-    if(!day||day<1||day>31) return alert('Informe o dia (1–31).');
+    if(!day||day<1||day>31){ btn.disabled=false; btn.textContent='Salvar'; return alert('Informe o dia (1–31).'); }
     startMonth=document.getElementById('fStartMonth').value;
     const [sy,sm]=startMonth.split('-').map(Number);
     const ny=new Date().getFullYear(),nm=new Date().getMonth()+1;
-    if(sy<ny||(sy===ny&&sm<nm)) return alert('Não é permitido lançar em meses passados.');
+    if(sy<ny||(sy===ny&&sm<nm)){ btn.disabled=false; btn.textContent='Salvar'; return alert('Não é permitido lançar em meses passados.'); }
     parcelas=parseInt(document.getElementById('fParcelas').value)||0;
   } else {
     date=document.getElementById('fDate').value;
-    if(!date) return alert('Informe a data.');
+    if(!date){ btn.disabled=false; btn.textContent='Salvar'; return alert('Informe a data.'); }
   }
   const cat=document.getElementById('fCat').value;
-  const isR=editingKind==='receita';
-  const col=isR?'receitas':'bills';
   const df=isR?{recDate:date||null}:{date:date||null};
   const data={name,value,tipo:selTipo,day:day||null,...df,startMonth:startMonth||null,parcelas:parcelas||0,cat,uid:currentUser.uid,updatedAt:Date.now()};
-  const btn=document.getElementById('btnSave');
-  btn.disabled=true; btn.textContent='Salvando...';
   try {
     let docId=editingId;
     if(editingId){
@@ -927,7 +992,8 @@ window.openDetail=(id,kind='despesa')=>{
   document.getElementById('detailTitle').textContent=`${cat.label} — ${b.name}`;
   document.getElementById('detailBody').innerHTML=`
     <div class="detail-group">
-      <div class="detail-row"><span class="detail-k">Valor</span><span class="detail-v">${fmtMoney(b.value)}</span></div>
+      <div class="detail-row"><span class="detail-k">Valor ${isR?'':'neste mês'}</span><span class="detail-v">${fmtMoney(getVal(b))}</span></div>
+      ${b.value!==getVal(b)?`<div class="detail-row"><span class="detail-k">Valor padrão</span><span class="detail-v" style="color:var(--tertiary)">${fmtMoney(b.value)}</span></div>`:''}
       <div class="detail-row"><span class="detail-k">${isR?'Recebimento':'Vencimento'}</span><span class="detail-v">${fmtDate(due)}</span></div>
       <div class="detail-row"><span class="detail-k">Tipo</span><span class="detail-v">${b.tipo==='recorrente'?'Mensal':'Avulsa'}</span></div>
       ${pi}
@@ -940,9 +1006,14 @@ window.openDetail=(id,kind='despesa')=>{
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="${p?'M9 14l-4-4 1.4-1.4L9 11.2l8.6-8.6L19 4z':'M20 6L9 17l-5-5'}" stroke="#0071e3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         ${p?(isR?'Desfazer recebimento':'Desfazer pagamento'):(isR?'Marcar como recebido':'Marcar como pago')}
       </button>
-      <button class="action-btn blue" onclick="closeSheet('detailOverlay');openForm('${kind}','${id}')">
+      ${b.tipo==='recorrente'?`
+      <button class="action-btn blue" onclick="closeSheet('detailOverlay');openForm('${kind}','${id}',true)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 100 7h5a3.5 3.5 0 110 7H6" stroke="#0071e3" stroke-width="2" stroke-linecap="round"/></svg>
+        Editar valor deste mês
+      </button>`:''}
+      <button class="action-btn blue" onclick="closeSheet('detailOverlay');openForm('${kind}','${id}',false)">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" stroke="#0071e3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Editar
+        Editar conta completa
       </button>
       <button class="action-btn red" onclick="deleteItem('${id}','${kind}')">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" stroke="#c0392b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
