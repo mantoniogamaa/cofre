@@ -7,7 +7,10 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>Cofre</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
 <style>
 :root{
   --bg:#f5f5f7;--surface:#fff;--surface2:#f5f5f7;--surface3:#e8e8ed;
@@ -550,7 +553,7 @@ select.form-input{cursor:pointer;}
 import { initializeApp }          from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, setPersistence, browserLocalPersistence, signOut, onAuthStateChanged }
                                   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getFirestore, collection, doc, getDocs, addDoc, setDoc, deleteDoc, onSnapshot }
+import { initializeFirestore, persistentLocalCache, collection, doc, getDocs, addDoc, setDoc, deleteDoc, onSnapshot }
                                   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const app  = initializeApp({
@@ -562,7 +565,7 @@ const app  = initializeApp({
   appId:"1:701179902829:web:700263659637731bb5b864"
 });
 const auth = getAuth(app);
-const db   = getFirestore(app);
+const db   = initializeFirestore(app, { localCache: persistentLocalCache() });
 
 // ── PERSISTÊNCIA LOCAL — mantém login entre sessões ──
 await setPersistence(auth, browserLocalPersistence);
@@ -645,24 +648,27 @@ function uDoc(c,id){ return doc(db,'users',currentUser.uid,c,id); }
 let bills=[],receitas=[],paid={},skipped={};
 let unsubB=null,unsubR=null,unsubP=null,unsubSk=null;
 
+let renderTimer=null;
+function scheduleRender(){ clearTimeout(renderTimer); renderTimer=setTimeout(render,50); }
+
 function loadData(){
   if(unsubB) unsubB();
-  unsubB=onSnapshot(uCol('bills'),s=>{ bills=s.docs.map(d=>({...d.data(),id:d.id})); render(); });
+  unsubB=onSnapshot(uCol('bills'),s=>{ bills=s.docs.map(d=>({...d.data(),id:d.id})); scheduleRender(); });
   if(unsubR) unsubR();
-  unsubR=onSnapshot(uCol('receitas'),s=>{ receitas=s.docs.map(d=>({...d.data(),id:d.id})); render(); });
+  unsubR=onSnapshot(uCol('receitas'),s=>{ receitas=s.docs.map(d=>({...d.data(),id:d.id})); scheduleRender(); });
   if(unsubP) unsubP();
-  unsubP=onSnapshot(uCol('paid'),s=>{ paid={}; s.docs.forEach(d=>paid[d.id]=true); render(); });
+  unsubP=onSnapshot(uCol('paid'),s=>{ paid={}; s.docs.forEach(d=>paid[d.id]=true); scheduleRender(); });
   if(unsubSk) unsubSk();
-  unsubSk=onSnapshot(uCol('skipped'),s=>{ skipped={}; s.docs.forEach(d=>skipped[d.id]=true); render(); });
+  unsubSk=onSnapshot(uCol('skipped'),s=>{ skipped={}; s.docs.forEach(d=>skipped[d.id]=true); scheduleRender(); });
   // Carrega overrides de valor por mês
   onSnapshot(uCol('bills_overrides'),s=>{
     overrides={};
     s.docs.forEach(d=>{ const o=d.data(); overrides[`${o.year}-${o.month}-${o.billId}`]=o.value; });
-    render();
+    scheduleRender();
   });
   onSnapshot(uCol('receitas_overrides'),s=>{
     s.docs.forEach(d=>{ const o=d.data(); overrides[`${o.year}-${o.month}-${o.billId}`]=o.value; });
-    render();
+    scheduleRender();
   });
 }
 
