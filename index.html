@@ -7,6 +7,13 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>Cofre</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.svg">
+<meta name="theme-color" content="#0071e3" id="metaTheme">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Cofre">
+<script>(function(){var t=localStorage.getItem('theme')||(window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
@@ -23,6 +30,37 @@
   --red:#c0392b;--red-bg:#fdf2f2;
   --radius:10px;--radius-lg:16px;--radius-xl:20px;
 }
+[data-theme="dark"]{
+  --bg:#1c1c1e;--surface:#2c2c2e;--surface2:#1c1c1e;--surface3:#3a3a3c;
+  --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.14);
+  --text:#f5f5f7;--secondary:#aeaeb2;--tertiary:#6e6e73;
+  --accent:#0a84ff;--green:#30d158;--green-bg:rgba(48,209,88,0.15);
+  --orange:#ff6961;--orange-bg:rgba(255,105,97,0.15);
+  --warn:#ff9f0a;--warn-bg:rgba(255,159,10,0.15);
+  --purple:#bf5af2;--purple-bg:rgba(191,90,242,0.15);
+  --red:#ff453a;--red-bg:rgba(255,69,58,0.15);
+}
+[data-theme="dark"] .header{background:rgba(28,28,30,0.92);}
+[data-theme="dark"] .login-hero{background:linear-gradient(150deg,#0051a8 0%,#1a6fba 60%,#2a8fd4 100%);}
+[data-theme="dark"] .login-feat-icon.blue  {background:rgba(10,132,255,0.15);}
+[data-theme="dark"] .login-feat-icon.green {background:rgba(48,209,88,0.15);}
+[data-theme="dark"] .login-feat-icon.indigo{background:rgba(191,90,242,0.15);}
+[data-theme="dark"] .icon-btn path[fill="#1d1d1f"]{fill:var(--text);}
+[data-theme="dark"] .ci-moradia    {background:rgba(255,248,225,0.1);}
+[data-theme="dark"] .ci-transporte {background:rgba(232,245,233,0.1);}
+[data-theme="dark"] .ci-alimentacao{background:rgba(255,243,224,0.1);}
+[data-theme="dark"] .ci-saude      {background:rgba(252,228,236,0.1);}
+[data-theme="dark"] .ci-lazer      {background:rgba(243,229,245,0.1);}
+[data-theme="dark"] .ci-educacao   {background:rgba(227,242,253,0.1);}
+[data-theme="dark"] .ci-streaming  {background:rgba(252,228,236,0.1);}
+[data-theme="dark"] .ci-financeiro {background:rgba(224,242,241,0.1);}
+[data-theme="dark"] .ci-outros     {background:rgba(245,245,245,0.1);}
+[data-theme="dark"] .ci-salario    {background:rgba(232,245,233,0.1);}
+[data-theme="dark"] .ci-freelance  {background:rgba(227,242,253,0.1);}
+[data-theme="dark"] .ci-investimento{background:rgba(243,229,245,0.1);}
+[data-theme="dark"] .ci-bonus      {background:rgba(255,248,225,0.1);}
+[data-theme="dark"] .ci-aluguel_rec{background:rgba(224,242,241,0.1);}
+[data-theme="dark"] .ci-outros_rec {background:rgba(245,245,245,0.1);}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,sans-serif;min-height:100vh;font-size:15px;-webkit-font-smoothing:antialiased;}
 .app{max-width:430px;margin:0 auto;padding-bottom:110px;}
@@ -124,7 +162,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,sa
 .app-title{font-size:17px;font-weight:700;letter-spacing:-0.4px;}
 .header-actions{display:flex;gap:8px;align-items:center;}
 .icon-btn{
-  background:var(--surface);border:none;
+  background:var(--surface);border:none;color:var(--text);
   width:32px;height:32px;border-radius:50%;
   display:flex;align-items:center;justify-content:center;
   cursor:pointer;position:relative;
@@ -394,6 +432,10 @@ select.form-input{cursor:pointer;}
     <div class="header-row">
       <div class="app-title">Cofre</div>
       <div class="header-actions">
+        <button class="icon-btn" id="themeBtn" onclick="toggleTheme()" title="Alternar tema">
+          <svg id="iconMoon" width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg id="iconSun"  width="15" height="15" viewBox="0 0 24 24" fill="none" style="display:none"><circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="2"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
         <button class="icon-btn" onclick="openNotif()" title="Alertas">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 22a2 2 0 002-2H10a2 2 0 002 2zm6-6V11a6 6 0 00-5-5.91V4a1 1 0 00-2 0v1.09A6 6 0 006 11v5l-2 2v1h16v-1l-2-2z" fill="#1d1d1f"/></svg>
           <span class="notif-badge" id="notifBadge"></span>
@@ -1182,6 +1224,22 @@ async function deleteCalEvents(billId,col){
     ])));
   } catch(e){}
 }
+
+// ── DARK MODE ──
+function applyTheme(t){
+  document.documentElement.setAttribute('data-theme',t);
+  localStorage.setItem('theme',t);
+  const moon=document.getElementById('iconMoon'), sun=document.getElementById('iconSun');
+  if(moon) moon.style.display=t==='dark'?'none':'block';
+  if(sun)  sun.style.display=t==='dark'?'block':'none';
+  const mt=document.getElementById('metaTheme');
+  if(mt) mt.content=t==='dark'?'#1c1c1e':'#0071e3';
+}
+window.toggleTheme=()=>applyTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark');
+applyTheme(localStorage.getItem('theme')||(window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'));
+
+// ── SERVICE WORKER ──
+if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
 
 // ── INIT ──
 if('Notification' in window&&Notification.permission==='default') Notification.requestPermission();
