@@ -584,7 +584,7 @@ window.loginGoogle = async () => {
         await signInWithRedirect(auth, p);
       } else { throw popupErr; }
     }
-  } catch(e){ alert('Erro ao entrar: '+e.message); }
+  } catch(e){ showToast('alert','Erro ao entrar',sanitize(e.message),'red'); }
 };
 
 window.logoutUser = async () => {
@@ -626,15 +626,15 @@ onAuthStateChanged(auth, user => {
 
 function renderAvatar(u){
   const w=document.getElementById('userAvatarWrap');
-  if(u.photoURL) w.innerHTML=`<img class="user-avatar" src="${u.photoURL}"/>`;
-  else { const i=(u.displayName||u.email||'U')[0].toUpperCase(); w.innerHTML=`<div class="user-avatar-ph">${i}</div>`; }
+  if(u.photoURL) w.innerHTML=`<img class="user-avatar" src="${sanitize(u.photoURL)}"/>`;
+  else { const i=sanitize((u.displayName||u.email||'U')[0].toUpperCase()); w.innerHTML=`<div class="user-avatar-ph">${i}</div>`; }
 }
 
 window.openUserMenu = () => {
-  const u=currentUser, i=(u.displayName||u.email||'U')[0].toUpperCase();
+  const u=currentUser, i=sanitize((u.displayName||u.email||'U')[0].toUpperCase());
   document.getElementById('userMenuInfo').innerHTML = u.photoURL
-    ? `<img class="user-menu-avatar" src="${u.photoURL}"/><div><div class="user-menu-name">${u.displayName||'Usuário'}</div><div class="user-menu-email">${u.email}</div></div>`
-    : `<div class="user-menu-avatar-ph">${i}</div><div><div class="user-menu-name">${u.displayName||'Usuário'}</div><div class="user-menu-email">${u.email}</div></div>`;
+    ? `<img class="user-menu-avatar" src="${sanitize(u.photoURL)}"/><div><div class="user-menu-name">${sanitize(u.displayName||'Usuário')}</div><div class="user-menu-email">${sanitize(u.email)}</div></div>`
+    : `<div class="user-menu-avatar-ph">${i}</div><div><div class="user-menu-name">${sanitize(u.displayName||'Usuário')}</div><div class="user-menu-email">${sanitize(u.email)}</div></div>`;
   document.getElementById('userMenuOverlay').classList.add('show');
 };
 
@@ -642,8 +642,8 @@ window.openUserMenu = () => {
 function uCol(c){ return collection(db,'users',currentUser.uid,c); }
 function uDoc(c,id){ return doc(db,'users',currentUser.uid,c,id); }
 
-let bills=[],receitas=[],paid={};
-let unsubB=null,unsubR=null,unsubP=null;
+let bills=[],receitas=[],paid={},skipped={};
+let unsubB=null,unsubR=null,unsubP=null,unsubSk=null;
 
 function loadData(){
   if(unsubB) unsubB();
@@ -652,6 +652,8 @@ function loadData(){
   unsubR=onSnapshot(uCol('receitas'),s=>{ receitas=s.docs.map(d=>({...d.data(),id:d.id})); render(); });
   if(unsubP) unsubP();
   unsubP=onSnapshot(uCol('paid'),s=>{ paid={}; s.docs.forEach(d=>paid[d.id]=true); render(); });
+  if(unsubSk) unsubSk();
+  unsubSk=onSnapshot(uCol('skipped'),s=>{ skipped={}; s.docs.forEach(d=>skipped[d.id]=true); render(); });
   // Carrega overrides de valor por mês
   onSnapshot(uCol('bills_overrides'),s=>{
     overrides={};
@@ -686,6 +688,7 @@ const CAT_R={
 };
 
 function catData(kind,cat){ return (kind==='receita'?CAT_R:CAT_D)[cat]||(kind==='receita'?CAT_R.outros_rec:CAT_D.outros); }
+function sanitize(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
 // ── STATE ──
 let currentFilter='todas',currentFilterRec='todas',currentTab='despesas';
@@ -720,8 +723,7 @@ window.togglePaid=async(id,kind='despesa')=>{
 };
 
 function inMonth(b){
-  const sk=JSON.parse(localStorage.getItem(`sk_${currentUser?.uid}`)||'{}');
-  if(sk[`${currentYear}-${currentMonth}-${b.id}`]) return false;
+  if(skipped[`${currentYear}-${currentMonth}-${b.id}`]) return false;
   if(b.tipo==='recorrente'){
     if(b.startMonth){
       const [sy,sm]=b.startMonth.split('-').map(Number);
@@ -751,8 +753,8 @@ function getAlerts(){
 window.render=function(){
   document.getElementById('monthLabel').textContent=monthStr(currentMonth,currentYear);
   const mb=getMonthBills(),mr=getMonthReceitas();
-  const td=mb.reduce((s,b)=>s+b.value,0);
-  const tr=mr.reduce((s,r)=>s+r.value,0);
+  const td=mb.reduce((s,b)=>s+getVal(b),0);
+  const tr=mr.reduce((s,r)=>s+getVal(r),0);
   const sl=tr-td;
   document.getElementById('totalReceitas').textContent=fmtMoney(tr);
   document.getElementById('totalDespesas').textContent=fmtMoney(td);
@@ -802,7 +804,7 @@ function renderDespesas(mb){
       <div class="status-bar ${sc}"></div>
       <div class="cat-icon ${cat.css}">${billSVG('despesa',bill.cat)}</div>
       <div class="bill-info">
-        <div class="bill-name">${bill.name}${hasOv?'<span class="override-dot" title="Valor editado neste mês"></span>':''}</div>
+        <div class="bill-name">${sanitize(bill.name)}${hasOv?'<span class="override-dot" title="Valor editado neste mês"></span>':''}</div>
         <div class="bill-meta"><span class="bill-date">${fmtDate(due)}</span><span class="bill-chip ${bill.tipo==='recorrente'?'mensal':'avulsa'}">${chip}</span></div>
       </div>
       <div class="bill-right">
@@ -838,7 +840,7 @@ function renderReceitas(mr){
       <div class="status-bar ${rcv?'muted':'purple'}"></div>
       <div class="cat-icon ${cat.css}">${billSVG('receita',rec.cat)}</div>
       <div class="bill-info">
-        <div class="bill-name">${rec.name}</div>
+        <div class="bill-name">${sanitize(rec.name)}</div>
         <div class="bill-meta"><span class="bill-date">${fmtDate(due)}</span><span class="bill-chip receita">${chip}</span></div>
       </div>
       <div class="bill-right">
@@ -858,7 +860,6 @@ window.openForm=(kind='despesa',id=null,monthOnly=false)=>{
   if(monthOnly && id){
     // Modo: editar apenas o valor deste mês
     const src=isR?receitas:bills, b=src.find(x=>x.id===id);
-    const overrides=JSON.parse(localStorage.getItem(`overrides_${currentUser.uid}`)||'{}');
     const ok=`${currentYear}-${currentMonth}-${id}`;
     const valAtual=overrides[ok]!==undefined ? overrides[ok] : b.value;
     document.getElementById('formTitle').textContent='Valor de '+monthStr(currentMonth,currentYear);
@@ -932,32 +933,27 @@ window.saveBill=async()=>{
   // ── Modo edição de valor do mês apenas ──
   if(editingMonthOnly && editingId){
     const ok=`${currentYear}-${currentMonth}-${editingId}`;
-    const overrides=JSON.parse(localStorage.getItem(`overrides_${currentUser.uid}`)||'{}');
-    overrides[ok]=value;
-    localStorage.setItem(`overrides_${currentUser.uid}`,JSON.stringify(overrides));
-    // Salva também no Firestore para sincronizar entre dispositivos
     await setDoc(uDoc(`${col}_overrides`,ok),{billId:editingId,value,month:currentMonth,year:currentYear,uid:currentUser.uid});
     btn.disabled=false; btn.textContent='Salvar';
     closeSheet('formOverlay');
-    render();
     return;
   }
 
   // ── Modo normal ──
   const name=document.getElementById('fName').value.trim();
-  if(!name) { btn.disabled=false; btn.textContent='Salvar'; return alert('Informe o nome.'); }
+  if(!name) { btn.disabled=false; btn.textContent='Salvar'; showToast('alert','Campo obrigatório','Informe o nome.','warn'); return; }
   let day,date,startMonth,parcelas;
   if(selTipo==='recorrente'){
     day=parseInt(document.getElementById('fDay').value);
-    if(!day||day<1||day>31){ btn.disabled=false; btn.textContent='Salvar'; return alert('Informe o dia (1–31).'); }
+    if(!day||day<1||day>31){ btn.disabled=false; btn.textContent='Salvar'; showToast('alert','Campo obrigatório','Informe o dia (1–31).','warn'); return; }
     startMonth=document.getElementById('fStartMonth').value;
     const [sy,sm]=startMonth.split('-').map(Number);
     const ny=new Date().getFullYear(),nm=new Date().getMonth()+1;
-    if(sy<ny||(sy===ny&&sm<nm)){ btn.disabled=false; btn.textContent='Salvar'; return alert('Não é permitido lançar em meses passados.'); }
+    if(sy<ny||(sy===ny&&sm<nm)){ btn.disabled=false; btn.textContent='Salvar'; showToast('alert','Data inválida','Não é permitido lançar em meses passados.','warn'); return; }
     parcelas=parseInt(document.getElementById('fParcelas').value)||0;
   } else {
     date=document.getElementById('fDate').value;
-    if(!date){ btn.disabled=false; btn.textContent='Salvar'; return alert('Informe a data.'); }
+    if(!date){ btn.disabled=false; btn.textContent='Salvar'; showToast('alert','Campo obrigatório','Informe a data.','warn'); return; }
   }
   const cat=document.getElementById('fCat').value;
   const df=isR?{recDate:date||null}:{date:date||null};
@@ -965,16 +961,20 @@ window.saveBill=async()=>{
   try {
     let docId=editingId;
     if(editingId){
-      await Promise.all([setDoc(uDoc(col,editingId),data), deleteCalEvents(editingId,col)]);
+      await setDoc(uDoc(col,editingId),data);
     } else {
       const ref=await addDoc(uCol(col),data); docId=ref.id;
     }
-    const ok=await ensureToken();
-    if(ok){ const ids=await createCalEvents({...data,id:docId},editingKind); await saveEvIds(docId,col,ids); }
+    // Fecha o formulário assim que o Firestore confirmar — sem esperar o Calendar
     closeSheet('formOverlay');
-    showToast('calendar','Lembretes criados','Eventos adicionados na Agenda Google','blue');
-  } catch(e){ alert('Erro: '+e.message); }
-  btn.disabled=false; btn.textContent='Salvar';
+    btn.disabled=false; btn.textContent='Salvar';
+    // Operações do Google Calendar em background (não bloqueiam a UI)
+    (async()=>{
+      if(editingId) await deleteCalEvents(editingId,col);
+      const ok=await ensureToken();
+      if(ok){ const ids=await createCalEvents({...data,id:docId},editingKind); await saveEvIds(docId,col,ids); if(ids.length) showToast('calendar','Lembretes criados','Eventos adicionados na Agenda Google','blue'); }
+    })();
+  } catch(e){ showToast('alert','Erro ao salvar',sanitize(e.message),'red'); btn.disabled=false; btn.textContent='Salvar'; }
 };
 
 // ── DETAIL ──
@@ -1029,17 +1029,16 @@ window.deleteItem=(id,kind)=>{
   if(!b) return;
   const col=isR?'receitas':'bills';
   if(b.tipo==='avulsa'){
-    showConfirm('Excluir conta','Deseja excluir <strong>'+b.name+'</strong>?',[
+    showConfirm('Excluir conta','Deseja excluir <strong>'+sanitize(b.name)+'</strong>?',[
       {label:'Excluir',color:'red',action:async()=>{ await Promise.all([deleteCalEvents(id,col),deleteDoc(uDoc(col,id))]); closeSheet('detailOverlay'); }},
       {label:'Cancelar',color:'cancel',action:()=>{}}
     ]);
   } else {
-    showConfirm('Excluir recorrente','<strong>'+b.name+'</strong> é mensal. O que deseja?',[
-      {label:'Só este mês',color:'warn',action:()=>{
-        const sk=JSON.parse(localStorage.getItem(`sk_${currentUser.uid}`)||'{}');
-        sk[`${currentYear}-${currentMonth}-${id}`]=true;
-        localStorage.setItem(`sk_${currentUser.uid}`,JSON.stringify(sk));
-        closeSheet('detailOverlay'); render();
+    showConfirm('Excluir recorrente','<strong>'+sanitize(b.name)+'</strong> é mensal. O que deseja?',[
+      {label:'Só este mês',color:'warn',action:async()=>{
+        const k=`${currentYear}-${currentMonth}-${id}`;
+        await setDoc(uDoc('skipped',k),{billId:id,month:currentMonth,year:currentYear,uid:currentUser.uid});
+        closeSheet('detailOverlay');
       }},
       {label:'Todos os meses',color:'red',action:async()=>{ await Promise.all([deleteCalEvents(id,col),deleteDoc(uDoc(col,id))]); closeSheet('detailOverlay'); }},
       {label:'Cancelar',color:'cancel',action:()=>{}}
@@ -1059,7 +1058,7 @@ window.openNotif=()=>{
       const txt=days<0?`Venceu há ${Math.abs(days)} dia(s) · ${fmtMoney(b.value)}`:days===0?`Vence hoje · ${fmtMoney(b.value)}`:`Vence em ${days} dia(s) · ${fmtMoney(b.value)}`;
       const col=days<=0?'red':'warn';
       const cat=catData('despesa',b.cat);
-      return `<div class="notif-item"><div class="notif-dot ${col}"></div><div class="notif-body"><strong>${cat.label} — ${b.name}</strong>${txt}</div></div>`;
+      return `<div class="notif-item"><div class="notif-dot ${col}"></div><div class="notif-body"><strong>${cat.label} — ${sanitize(b.name)}</strong>${txt}</div></div>`;
     }).join('');
   }
   document.getElementById('notifOverlay').classList.add('show');
