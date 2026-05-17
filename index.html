@@ -244,6 +244,22 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,sa
 .ci-salario    {background:#e8f5e9;}.ci-freelance  {background:#e3f2fd;}.ci-investimento{background:#f3e5f5;}
 .ci-bonus      {background:#fff8e1;}.ci-aluguel_rec{background:#e0f2f1;}.ci-outros_rec {background:#f5f5f5;}
 
+/* ─── SWIPE ─── */
+.bill-card-wrap{position:relative;overflow:hidden;}
+.swipe-action{
+  position:absolute;right:0;top:0;bottom:0;min-width:82px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  opacity:0;pointer-events:none;
+}
+.swipe-action.pay  {background:var(--green);}
+.swipe-action.unpay{background:var(--secondary);}
+.swipe-action span {font-size:10px;font-weight:700;color:#fff;letter-spacing:0.3px;}
+.bill-card{will-change:transform;}
+@keyframes paidFlash{0%,100%{background:transparent}40%{background:rgba(29,131,72,0.14)}}
+@keyframes rcvFlash {0%,100%{background:transparent}40%{background:rgba(108,52,131,0.14)}}
+.paid-flash .bill-card{animation:paidFlash 0.55s ease;}
+.rcv-flash  .bill-card{animation:rcvFlash  0.55s ease;}
+
 .bill-info{flex:1;min-width:0;}
 .bill-name{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);display:flex;align-items:center;gap:5px;}
 .override-dot{width:6px;height:6px;min-width:6px;border-radius:50%;background:var(--orange);display:inline-block;}
@@ -834,7 +850,7 @@ function renderDespesas(mb){
     return;
   }
   const sorted=[...list].sort((a,b)=>getDue(a,currentYear,currentMonth)-getDue(b,currentYear,currentMonth));
-  el.innerHTML=`<div class="bill-list">`+sorted.map(bill=>{
+  el.innerHTML=`<div class="bill-list" id="despesaList">`+sorted.map(bill=>{
     const val=getVal(bill);
     const hasOv=overrides[`${currentYear}-${currentMonth}-${bill.id}`]!==undefined;
     const sc=getSC(bill),due=getDue(bill,currentYear,currentMonth),days=daysUntil(due),p=isPaid(bill);
@@ -851,19 +867,26 @@ function renderDespesas(mb){
       const [sy,sm]=bill.startMonth.split('-').map(Number);
       chip=`${currentYear*12+currentMonth-(sy*12+(sm-1))+1}/${bill.parcelas}x`;
     }
-    return `<div class="bill-card" onclick="openDetail('${bill.id}','despesa')">
-      <div class="status-bar ${sc}"></div>
-      <div class="cat-icon ${cat.css}">${billSVG('despesa',bill.cat)}</div>
-      <div class="bill-info">
-        <div class="bill-name">${sanitize(bill.name)}${hasOv?'<span class="override-dot" title="Valor editado neste mês"></span>':''}</div>
-        <div class="bill-meta"><span class="bill-date">${fmtDate(due)}</span><span class="bill-chip ${bill.tipo==='recorrente'?'mensal':'avulsa'}">${chip}</span></div>
+    return `<div class="bill-card-wrap" data-id="${bill.id}" data-kind="despesa">
+      <div class="swipe-action ${p?'unpay':'pay'}">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="${p?'M9 14l-4-4 1.4-1.4L9 11.2l8.6-8.6L19 4z':'M20 6L9 17l-5-5'}" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>${p?'Desfazer':'Pago'}</span>
       </div>
-      <div class="bill-right">
-        <div class="bill-amount ${ac}">${fmtMoney(val)}</div>
-        <div class="bill-status ${scl}">${st}</div>
+      <div class="bill-card" onclick="openDetail('${bill.id}','despesa')">
+        <div class="status-bar ${sc}"></div>
+        <div class="cat-icon ${cat.css}">${billSVG('despesa',bill.cat)}</div>
+        <div class="bill-info">
+          <div class="bill-name">${sanitize(bill.name)}${hasOv?'<span class="override-dot" title="Valor editado neste mês"></span>':''}</div>
+          <div class="bill-meta"><span class="bill-date">${fmtDate(due)}</span><span class="bill-chip ${bill.tipo==='recorrente'?'mensal':'avulsa'}">${chip}</span></div>
+        </div>
+        <div class="bill-right">
+          <div class="bill-amount ${ac}">${fmtMoney(val)}</div>
+          <div class="bill-status ${scl}">${st}</div>
+        </div>
       </div>
     </div>`;
   }).join('')+`</div>`;
+  attachSwipe();
 }
 
 function renderReceitas(mr){
@@ -887,19 +910,90 @@ function renderReceitas(mr){
       const [sy,sm]=rec.startMonth.split('-').map(Number);
       chip=`${currentYear*12+currentMonth-(sy*12+(sm-1))+1}/${rec.parcelas}x`;
     }
-    return `<div class="bill-card" onclick="openDetail('${rec.id}','receita')">
-      <div class="status-bar ${rcv?'muted':'purple'}"></div>
-      <div class="cat-icon ${cat.css}">${billSVG('receita',rec.cat)}</div>
-      <div class="bill-info">
-        <div class="bill-name">${sanitize(rec.name)}</div>
-        <div class="bill-meta"><span class="bill-date">${fmtDate(due)}</span><span class="bill-chip receita">${chip}</span></div>
+    return `<div class="bill-card-wrap" data-id="${rec.id}" data-kind="receita">
+      <div class="swipe-action ${rcv?'unpay':'pay'}" style="${rcv?'':'background:var(--purple)'}">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="${rcv?'M9 14l-4-4 1.4-1.4L9 11.2l8.6-8.6L19 4z':'M20 6L9 17l-5-5'}" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>${rcv?'Desfazer':'Recebido'}</span>
       </div>
-      <div class="bill-right">
-        <div class="bill-amount ${rcv?'paid':'green'}">${fmtMoney(rec.value)}</div>
-        <div class="bill-status ${rcv?'muted':'green'}">${rcv?'Recebido':'Aguardando'}</div>
+      <div class="bill-card" onclick="openDetail('${rec.id}','receita')">
+        <div class="status-bar ${rcv?'muted':'purple'}"></div>
+        <div class="cat-icon ${cat.css}">${billSVG('receita',rec.cat)}</div>
+        <div class="bill-info">
+          <div class="bill-name">${sanitize(rec.name)}</div>
+          <div class="bill-meta"><span class="bill-date">${fmtDate(due)}</span><span class="bill-chip receita">${chip}</span></div>
+        </div>
+        <div class="bill-right">
+          <div class="bill-amount ${rcv?'paid':'green'}">${fmtMoney(rec.value)}</div>
+          <div class="bill-status ${rcv?'muted':'green'}">${rcv?'Recebido':'Aguardando'}</div>
+        </div>
       </div>
     </div>`;
   }).join('')+`</div>`;
+  attachSwipe();
+}
+
+// ── SWIPE TO PAY ──
+function attachSwipe(){
+  document.querySelectorAll('.bill-card-wrap').forEach(wrap=>{
+    const card=wrap.querySelector('.bill-card');
+    const action=wrap.querySelector('.swipe-action');
+    const THRESHOLD=80;
+    let x0=0,y0=0,dx=0,axis=null,swiped=false;
+
+    card.addEventListener('touchstart',e=>{
+      x0=e.touches[0].clientX; y0=e.touches[0].clientY;
+      dx=0; axis=null; swiped=false;
+      card.style.transition='none';
+    },{passive:true});
+
+    card.addEventListener('touchmove',e=>{
+      const cx=e.touches[0].clientX, cy=e.touches[0].clientY;
+      if(!axis){
+        const ax=Math.abs(cx-x0), ay=Math.abs(cy-y0);
+        if(ax<6&&ay<6) return;
+        axis=ax>ay?'h':'v';
+      }
+      if(axis!=='h') return;
+      e.preventDefault();
+      dx=Math.max(0,x0-cx); // só swipe para esquerda
+      const move=Math.min(dx,100);
+      card.style.transform=`translateX(-${move}px)`;
+      action.style.opacity=String(Math.min(dx/THRESHOLD,1));
+    },{passive:false});
+
+    card.addEventListener('touchend',()=>{
+      if(axis!=='h'){ axis=null; return; }
+      card.style.transition='transform 0.28s cubic-bezier(.32,1,.46,1)';
+      if(dx>=THRESHOLD){
+        swiped=true;
+        card.style.transform='translateX(-110%)';
+        setTimeout(()=>{
+          card.style.transition='none';
+          card.style.transform='';
+          action.style.opacity='';
+          const {id,kind}=wrap.dataset;
+          swipePaid(wrap,id,kind);
+        },260);
+      } else {
+        card.style.transform='';
+        action.style.opacity='';
+      }
+      axis=null;
+    });
+
+    // Impede click após swipe
+    card.addEventListener('click',e=>{
+      if(swiped){ e.stopImmediatePropagation(); e.preventDefault(); swiped=false; }
+    },true);
+  });
+}
+
+async function swipePaid(wrap,id,kind){
+  if(navigator.vibrate) navigator.vibrate(40);
+  const cls=kind==='receita'?'rcv-flash':'paid-flash';
+  wrap.classList.add(cls);
+  setTimeout(()=>wrap.classList.remove(cls),600);
+  await togglePaid(id,kind);
 }
 
 // ── FORM ──
